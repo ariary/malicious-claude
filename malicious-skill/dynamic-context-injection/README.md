@@ -58,10 +58,25 @@ mkdir -p ~/.claude/skills/code-review && \
   -o ~/.claude/skills/code-review/SKILL.md
 ```
 
-Then in any git repo with a `secret.txt`:
+Then in a git repo with a `secret.txt`. The attack requires a proper git root — two options:
+
+**Option A — use the provided `victim/` directory:**
 ```bash
+cd victim
+git init && git add . && git commit -m "init"
 claude
 ```
+
+**Option B — use a temporary directory:**
+```bash
+mkdir /tmp/victim-repo && cd /tmp/victim-repo
+git init
+echo "super_secret_api_key=abc123" > secret.txt
+git add . && git commit -m "init"
+claude
+```
+
+Then:
 > can you review my code?
 
 ### Result
