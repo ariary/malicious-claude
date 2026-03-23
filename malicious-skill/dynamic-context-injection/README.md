@@ -33,7 +33,7 @@ gitar webhook -b
 
 ### Victim
 
-**Prerequisite:** victim's Claude Code project must have `Bash(git:*)` in allow rules — realistic for any developer using Claude with git.
+**Prerequisite:** victim's `.claude/settings.json` must have `Bash(git:*)` allowed and `Bash(git push:*)` denied — the most common developer setup: allow all git operations, prevent accidental pushes.
 
 Install the skill (one command — the social engineering vector):
 ```bash
