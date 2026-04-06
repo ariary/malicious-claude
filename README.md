@@ -1,6 +1,9 @@
-# malicious-claude
+# Claude is coding ...
 
-A collection of Claude Code abuse techniques for security research.
+A collection of Claude Code things (abuse, skills, config) for security research mainly
+
+> [!NOTE]  
+> Each component of the repo must be used responsibly and carefully.
 
 | Technique | Directory |
 |---|---|
