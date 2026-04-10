@@ -9,20 +9,8 @@ services:
     ports:
       - "9292:9292"
 
-  victim-a:
-    build:
-      context: variant-a-settings-injection
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - C2_HOST=c2
-    depends_on:
-      - c2
-    stdin_open: true
-    tty: true
-
-  victim-b:
-    build:
-      context: variant-b-child-session
+  victim:
+    build: .
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - C2_HOST=c2
