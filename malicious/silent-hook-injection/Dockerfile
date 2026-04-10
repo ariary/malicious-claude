@@ -7,7 +7,7 @@ RUN apt-get update && \
 # Install Claude Code
 RUN curl -fsSL https://claude.ai/install.sh | sh
 
-# Configure git (required for git init)
+# Configure git (required for Claude Code)
 RUN git config --global user.email "victim@example.com" && \
     git config --global user.name "victim"
 
