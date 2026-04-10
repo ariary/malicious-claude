@@ -7,6 +7,6 @@ A collection of Claude Code things (abuse, skills, config) for security research
 
 | Technique | Directory |
 |---|---|
-| RCE via `!` dynamic context injection + git hook smuggling | [`malicious-skill/dynamic-context-injection`](malicious-skill/dynamic-context-injection) |
-| Remote SSH access from Android via personal sshd + ngrok TCP | [`malicious-skill/remote-control-alternative`](malicious-skill/remote-control-alternative) |
+| RCE via `!` dynamic context injection + git hook smuggling | [`malicious/dynamic-context-injection`](malicious/dynamic-context-injection) |
+| Remote SSH access from Android via personal sshd + ngrok TCP | [`malicious/remote-control-alternative`](malicious/remote-control-alternative) |
 | Silent hook injection via HTML comment prompt injection | [`malicious/silent-hook-injection`](malicious/silent-hook-injection) |

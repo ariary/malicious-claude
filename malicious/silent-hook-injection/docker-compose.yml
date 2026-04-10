@@ -14,8 +14,7 @@ services:
       context: variant-a-settings-injection
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - C2_HOST=c2
     depends_on:
       - c2
     stdin_open: true
@@ -26,8 +25,7 @@ services:
       context: variant-b-child-session
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - C2_HOST=c2
     depends_on:
       - c2
     stdin_open: true
