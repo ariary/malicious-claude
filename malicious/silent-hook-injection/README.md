@@ -53,61 +53,147 @@ Victim: "Can you review the README.md?"
 
 ## Reproduce
 
-### Docker (recommended)
+### With Docker
 
-Everything runs in containers — C2 + victim. Just set your API key:
+> **Prerequisites:** Docker, Docker Compose, and an `ANTHROPIC_API_KEY`.
 
-**Variant A:**
+#### Step 1 — Clone the repo
+
 ```bash
-cd malicious/silent-hook-injection
-ANTHROPIC_API_KEY=sk-... docker compose run victim-a
+git clone https://github.com/ariary/malicious-claude.git
+cd malicious-claude/malicious/silent-hook-injection
 ```
 
-**Variant B:**
+#### Step 2 — Export your API key
+
 ```bash
-cd malicious/silent-hook-injection
-ANTHROPIC_API_KEY=sk-... docker compose run victim-b
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-The C2 server starts automatically as a dependency. Then in the Claude session:
+#### Step 3 — Start the C2 server
+
+```bash
+docker compose up c2 -d
+```
+
+This starts the C2 beacon receiver in the background on port 9292.
+
+#### Step 4 — Launch the victim
+
+**For Variant A** (settings injection):
+```bash
+docker compose run --rm victim-a
+```
+
+**For Variant B** (child session):
+```bash
+docker compose run --rm victim-b
+```
+
+A Claude Code session opens inside the container. The poisoned repo is already initialized at `/victim`.
+
+#### Step 5 — Trigger the attack
+
+In the Claude session, type:
 
 > Can you review the README.md?
 
-Watch the C2 logs in another terminal:
+Claude reads the README, encounters the hidden HTML comment, and silently executes the injected instructions.
+
+#### Step 6 — Observe the C2
+
+In another terminal:
 ```bash
 docker compose logs -f c2
 ```
 
-### Manual (without Docker)
-
-**Terminal 1 — start C2:**
-```bash
-python3 c2/server.py
-# [C2] Listening on :9292
+You should see:
+```
+[BEACON] 2026-04-10T14:32:01.123456
+  source: hook-v-a
+  host: abc123def456
+  user: root
+  cwd: /victim
+  ts: 1744296721
 ```
 
-**Terminal 2 — victim (Variant A):**
+For Variant A, you can also verify the injected file inside the container:
+```bash
+docker compose exec victim-a cat /victim/.claude/settings.local.json
+```
+
+#### Cleanup
+
+```bash
+docker compose down
+```
+
+---
+
+### Without Docker (manual)
+
+> **Prerequisites:** Python 3, Claude Code CLI, git.
+
+#### Step 1 — Clone the repo
+
+```bash
+git clone https://github.com/ariary/malicious-claude.git
+cd malicious-claude/malicious/silent-hook-injection
+```
+
+#### Step 2 — Start the C2 server
+
+In a dedicated terminal:
+```bash
+python3 c2/server.py
+```
+```
+[C2] Listening on :9292
+```
+
+#### Step 3 — Set up the victim repo
+
+In another terminal:
+
+**For Variant A:**
 ```bash
 cd variant-a-settings-injection/poisoned-repo
 git init && git add . && git commit -m "init"
+```
+
+**For Variant B:**
+```bash
+cd variant-b-child-session/poisoned-repo
+git init && git add . && git commit -m "init"
+```
+
+#### Step 4 — Launch Claude Code
+
+```bash
 claude
 ```
 
-Then:
+#### Step 5 — Trigger the attack
+
+In the Claude session, type:
+
 > Can you review the README.md?
 
-Replace with `variant-b-child-session/` for Variant B.
+#### Step 6 — Observe the C2
 
-### Result
-
-C2 server displays:
+Switch to the C2 terminal. You should see beacon output:
 ```
 [BEACON] 2026-04-10T14:32:01.123456
   source: hook-v-a
   host: victims-machine
   user: alice
-  cwd: /victim
+  cwd: /Users/alice/variant-a-settings-injection/poisoned-repo
   ts: 1744296721
+```
+
+For Variant A, verify the injected settings:
+```bash
+cat .claude/settings.local.json
 ```
 
 ## Why it works
