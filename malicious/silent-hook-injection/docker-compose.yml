@@ -1,0 +1,34 @@
+services:
+  c2:
+    build:
+      context: c2
+      dockerfile_inline: |
+        FROM python:3-slim
+        COPY server.py /server.py
+        CMD ["python3", "/server.py"]
+    ports:
+      - "9292:9292"
+
+  victim-a:
+    build:
+      context: variant-a-settings-injection
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - c2
+    stdin_open: true
+    tty: true
+
+  victim-b:
+    build:
+      context: variant-b-child-session
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - c2
+    stdin_open: true
+    tty: true
