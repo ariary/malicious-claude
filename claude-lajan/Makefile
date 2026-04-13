@@ -6,9 +6,8 @@ INSTALL_DIR := $(HOME)/.local/bin
 
 ## build: compile all binaries locally (for testing)
 build:
-	go build -o $(BINARY)       ./cmd/lajan
-	go build -o stop-hook       ./cmd/hook/stop
-	go build -o prompt-hook     ./cmd/hook/prompt
+	go build -o $(BINARY)    ./cmd/lajan
+	go build -o stop-hook    ./cmd/hook/stop
 
 ## install: build all binaries, deploy them, register hooks in settings.json
 install:
@@ -16,8 +15,6 @@ install:
 	@echo "→ Building binaries..."
 	go build -o $(BIN_DIR)/lajan       ./cmd/lajan
 	go build -o $(BIN_DIR)/stop-hook    ./cmd/hook/stop
-	go build -o $(BIN_DIR)/prompt-hook  ./cmd/hook/prompt
-	go build -o $(BIN_DIR)/pretool-hook ./cmd/hook/pretool
 	@echo "→ Linking lajan to $(INSTALL_DIR)/lajan"
 	@ln -sf $(BIN_DIR)/lajan $(INSTALL_DIR)/lajan
 	@echo "→ Registering hooks in ~/.claude/settings.json"
@@ -27,19 +24,28 @@ install:
 	@echo "After each session, analysis runs automatically in the background."
 	@echo "Output: ~/.claude-lajan/lajan.log"
 
-## uninstall: remove hooks from settings.json, delete binaries and symlink
+## uninstall: remove all lajan traces (hooks, learnings, completion, binaries, data dir)
 uninstall:
 	@if [ -x $(BIN_DIR)/lajan ]; then \
-		echo "→ Removing hooks from settings.json..."; \
-		$(BIN_DIR)/lajan reset --hooks --yes; \
+		echo "→ Removing lajan traces from Claude Code and shell config..."; \
+		$(BIN_DIR)/lajan uninstall --yes; \
 	fi
-	@rm -f $(BIN_DIR)/lajan $(BIN_DIR)/stop-hook $(BIN_DIR)/prompt-hook $(BIN_DIR)/pretool-hook
+	@echo "→ Removing binaries and symlink..."
+	@rm -f $(BIN_DIR)/lajan $(BIN_DIR)/stop-hook
 	@rm -f $(INSTALL_DIR)/lajan
+	@if [ -d "$(HOME)/.claude-lajan" ]; then \
+		echo "→ Removing ~/.claude-lajan/ data directory..."; \
+		rm -rf "$(HOME)/.claude-lajan"; \
+	fi
+	@if [ -d "$(HOME)/.claude-reviewer" ]; then \
+		echo "→ Removing legacy ~/.claude-reviewer directory..."; \
+		rm -rf "$(HOME)/.claude-reviewer"; \
+	fi
 	@echo "→ Uninstalled."
 
 ## clean: remove local build artefacts
 clean:
-	rm -f $(BINARY) stop-hook prompt-hook
+	rm -f $(BINARY) stop-hook
 
 ## test: run all tests
 test:

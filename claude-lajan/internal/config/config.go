@@ -16,6 +16,10 @@ const (
 	MaxTokens       = 2048
 	DigestMaxItems  = 20
 	DigestInjectTop = 5
+
+	// ClaudeMDMaxEntries is the maximum number of bullet entries kept in the
+	// managed CLAUDE.md section. Oldest entries are dropped when this is exceeded.
+	ClaudeMDMaxEntries = 15
 )
 
 // ReviewerDir returns the runtime data directory (~/.claude-lajan/).
@@ -38,6 +42,16 @@ func DigestFile() string {
 
 func BinDir() string {
 	return filepath.Join(ReviewerDir(), "bin")
+}
+
+// AllBinDirs returns all known hook binary directories: current and legacy names.
+// Used by UninstallHooks to clean up hooks regardless of which version installed them.
+func AllBinDirs() []string {
+	home, _ := os.UserHomeDir()
+	return []string{
+		BinDir(),
+		filepath.Join(home, ".claude-reviewer", "bin"),
+	}
 }
 
 // ClaudeDir returns ~/.claude/

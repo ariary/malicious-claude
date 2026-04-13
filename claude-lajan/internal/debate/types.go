@@ -18,9 +18,24 @@ const (
 
 // Finding is a single consensus-approved observation.
 type Finding struct {
-	Type  FindingType `json:"type"`
-	Scope Scope       `json:"scope"`
-	Text  string      `json:"text"`
+	Type            FindingType      `json:"type"`
+	Scope           Scope            `json:"scope"`
+	Text            string           `json:"text"`
+	// SuggestedHook is optional. When set, the finding is actionable enough
+	// to warrant a Claude Code hook (e.g. a lint check after file edits).
+	// The command must be a safe, read-only or lint-style shell command.
+	SuggestedHook   *HookSuggestion  `json:"suggested_hook,omitempty"`
+}
+
+// HookSuggestion describes a hookify rule to create.
+// Hookify rules are written as .claude/hookify.{name}.local.md files and
+// activated automatically by the hookify Claude Code plugin.
+type HookSuggestion struct {
+	Event   string `json:"event"`          // "bash" | "file" | "prompt" | "stop"
+	Pattern string `json:"pattern"`        // Python regex pattern to match
+	Action  string `json:"action"`         // "warn" | "block"
+	Field   string `json:"field,omitempty"` // "command" | "file_path" | "new_text" | "user_prompt"
+	Message string `json:"message"`        // message shown to Claude when pattern matches
 }
 
 // ConsensusStatus is returned by the consensus agent each round.

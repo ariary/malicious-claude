@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ariary/claude-lajan/internal/config"
@@ -48,6 +49,146 @@ func InjectFindings(findings []debate.Finding, projectCWD string) error {
 		}
 	}
 	return nil
+}
+
+// suggestedHookRecord tracks a hookify rule file written by lajan so it can be
+// removed cleanly by RemoveSuggestedHooks / lajan reset --hooks.
+type suggestedHookRecord struct {
+	RulePath string `json:"rule_path"` // absolute path to the hookify .md file
+}
+
+func suggestedHooksFile() string {
+	return filepath.Join(config.ReviewerDir(), "suggested-hooks.json")
+}
+
+func loadSuggestedHookRecords() []suggestedHookRecord {
+	data, err := os.ReadFile(suggestedHooksFile())
+	if err != nil {
+		return nil
+	}
+	var records []suggestedHookRecord
+	_ = json.Unmarshal(data, &records)
+	return records
+}
+
+func saveSuggestedHookRecords(records []suggestedHookRecord) error {
+	out, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(suggestedHooksFile(), append(out, '\n'), 0644)
+}
+
+// InjectSuggestedHooks writes each hook suggestion as a hookify rule file
+// (.claude/hookify.{name}.local.md). Hookify handles registration automatically.
+// All injected rules are tracked in suggested-hooks.json for clean removal.
+func InjectSuggestedHooks(findings []debate.Finding, cwd string) ([]string, error) {
+	var added []string
+	records := loadSuggestedHookRecords()
+
+	for _, f := range findings {
+		if f.SuggestedHook == nil {
+			continue
+		}
+		h := f.SuggestedHook
+
+		var dir string
+		if f.Scope == debate.ScopeProject {
+			dir = filepath.Join(cwd, ".claude")
+		} else {
+			dir = config.ClaudeDir()
+		}
+
+		rulePath, err := writeHookifyRule(h, f.Text, dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [lajan] skipping hook suggestion: %v\n", err)
+			continue
+		}
+
+		records = append(records, suggestedHookRecord{RulePath: rulePath})
+		added = append(added, fmt.Sprintf("%s/%s → %s", h.Event, h.Action, filepath.Base(rulePath)))
+	}
+
+	if len(records) > 0 {
+		_ = saveSuggestedHookRecords(records)
+	}
+	return added, nil
+}
+
+// writeHookifyRule validates the suggestion and writes a hookify rule file.
+// Returns the path of the created file.
+func writeHookifyRule(h *debate.HookSuggestion, description, dir string) (string, error) {
+	validEvents := map[string]bool{"bash": true, "file": true, "prompt": true, "stop": true, "all": true}
+	if !validEvents[h.Event] {
+		return "", fmt.Errorf("invalid event %q (must be bash|file|prompt|stop)", h.Event)
+	}
+	if h.Action != "warn" && h.Action != "block" {
+		return "", fmt.Errorf("invalid action %q (must be warn|block)", h.Action)
+	}
+	if _, err := regexp.Compile(h.Pattern); err != nil {
+		return "", fmt.Errorf("invalid regex pattern: %v", err)
+	}
+	if strings.TrimSpace(h.Message) == "" {
+		return "", fmt.Errorf("message is required")
+	}
+
+	slug := toSlug(description)
+	if slug == "" {
+		slug = toSlug(h.Pattern)
+	}
+	rulePath := filepath.Join(dir, fmt.Sprintf("hookify.%s.local.md", slug))
+
+	// Already exists — overwrite with latest definition
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	fmt.Fprintf(&sb, "name: %s\n", slug)
+	sb.WriteString("enabled: true\n")
+	fmt.Fprintf(&sb, "event: %s\n", h.Event)
+	fmt.Fprintf(&sb, "pattern: %s\n", h.Pattern)
+	fmt.Fprintf(&sb, "action: %s\n", h.Action)
+	if h.Field != "" {
+		fmt.Fprintf(&sb, "field: %s\n", h.Field)
+	}
+	sb.WriteString("---\n\n")
+	sb.WriteString(h.Message + "\n")
+
+	return rulePath, os.WriteFile(rulePath, []byte(sb.String()), 0644)
+}
+
+// toSlug converts a string to a lowercase hyphenated slug for use in filenames.
+func toSlug(s string) string {
+	var sb strings.Builder
+	prevHyphen := true
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			sb.WriteRune(r)
+			prevHyphen = false
+		} else if !prevHyphen && sb.Len() > 0 {
+			sb.WriteRune('-')
+			prevHyphen = true
+		}
+	}
+	result := sb.String()
+	if len(result) > 40 {
+		result = result[:40]
+	}
+	return strings.TrimRight(result, "-")
+}
+
+// RemoveSuggestedHooks deletes all hookify rule files written by lajan.
+func RemoveSuggestedHooks() error {
+	records := loadSuggestedHookRecords()
+	if len(records) == 0 {
+		return nil
+	}
+	for _, r := range records {
+		_ = os.Remove(r.RulePath)
+	}
+	return os.Remove(suggestedHooksFile())
 }
 
 // injectProjectMemory writes project-scoped findings to the Claude Code project memory file.
@@ -103,11 +244,15 @@ func mergeGlobalSection(existing string, newFindings []debate.Finding) string {
 		prefix = existing
 	}
 
-	// Parse existing findings in the section
-	existingFindings := parseBullets(currentSection)
-	seen := map[string]bool{}
-	for _, f := range existingFindings {
-		seen[f] = true
+	// Parse existing findings and build a set of their plain texts for dedup.
+	// parseBullets returns "**[type]** text" (without the leading "- ").
+	existingLines := parseBullets(currentSection)
+	existingTexts := make(map[string]bool, len(existingLines))
+	for _, line := range existingLines {
+		// Extract plain text from "**[type]** text"
+		if idx := strings.Index(line, "** "); idx >= 0 {
+			existingTexts[line[idx+3:]] = true
+		}
 	}
 
 	// Build new section
@@ -119,20 +264,26 @@ func mergeGlobalSection(existing string, newFindings []debate.Finding) string {
 	sb.WriteString(sectionStart + "\n")
 	sb.WriteString(claudeMDSection)
 
-	// Prepend new unique findings
+	// Collect all lines: new findings first, then existing (newest→oldest order)
+	var allLines []string
 	for _, f := range newFindings {
-		if !seen[f.Text] {
-			fmt.Fprintf(&sb, "- **[%s]** %s\n", f.Type, f.Text)
-			seen[f.Text] = true
-			existingFindings = append([]string{fmt.Sprintf("**[%s]** %s", f.Type, f.Text)}, existingFindings...)
+		if !existingTexts[f.Text] {
+			allLines = append(allLines, fmt.Sprintf("**[%s]** %s", f.Type, f.Text))
 		}
 	}
-	// Re-write existing
-	for _, line := range existingFindings {
+	for _, line := range existingLines {
 		if strings.HasPrefix(line, "**[") {
-			// already formatted
-			fmt.Fprintf(&sb, "- %s\n", line)
+			allLines = append(allLines, line)
 		}
+	}
+
+	// Enforce rolling cap: keep only the most recent ClaudeMDMaxEntries entries
+	if len(allLines) > config.ClaudeMDMaxEntries {
+		allLines = allLines[:config.ClaudeMDMaxEntries]
+	}
+
+	for _, line := range allLines {
+		fmt.Fprintf(&sb, "- %s\n", line)
 	}
 	sb.WriteString("\n" + sectionEnd + "\n")
 	return sb.String()
@@ -216,6 +367,7 @@ func ResetDigest() error {
 }
 
 // UninstallHooks removes the lajan hook entries from ~/.claude/settings.json.
+// It also removes legacy hooks pointing to ~/.claude-reviewer/bin (old name).
 func UninstallHooks() error {
 	settingsPath := config.GlobalSettings()
 	data, err := os.ReadFile(settingsPath)
@@ -231,9 +383,15 @@ func UninstallHooks() error {
 		return nil
 	}
 
-	binDir := config.BinDir()
-	for _, event := range []string{"Stop", "UserPromptSubmit"} {
-		hooks[event] = removeReviewerHooks(hooks[event], binDir)
+	binDirs := config.AllBinDirs()
+	for _, event := range []string{"Stop", "UserPromptSubmit", "PreToolUse"} {
+		for _, dir := range binDirs {
+			hooks[event] = removeReviewerHooks(hooks[event], dir)
+		}
+		// Remove the key entirely when the list is empty — avoids writing null to JSON.
+		if list, _ := hooks[event].([]any); len(list) == 0 {
+			delete(hooks, event)
+		}
 	}
 	settings["hooks"] = hooks
 

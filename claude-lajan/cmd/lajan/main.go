@@ -34,6 +34,7 @@ func main() {
 		cmdEnable(),
 		cmdDisable(),
 		cmdInstall(),
+		cmdUninstall(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -147,6 +148,15 @@ func processSession(jsonlPath string, dryRun bool) error {
 	fmt.Printf("  %d findings injected (%d project-scoped, %d global)\n",
 		len(result.Findings), countScope(result.Findings, debate.ScopeProject), countScope(result.Findings, debate.ScopeGlobal))
 
+	// Inject any hook suggestions from findings
+	added, err := report.InjectSuggestedHooks(result.Findings, s.CWD)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  warning: hook injection failed: %v\n", err)
+	}
+	for _, h := range added {
+		fmt.Printf("  → Hook added: %s\n", h)
+	}
+
 	return nil
 }
 
@@ -235,17 +245,6 @@ func cmdSummarize() *cobra.Command {
 				fmt.Println("   Injected when Claude Code runs in this directory.")
 				for _, line := range project {
 					fmt.Printf("  • %s\n", line)
-				}
-				fmt.Println()
-			}
-
-			// Digest (prompt injection)
-			findings := report.LoadTopN(config.DigestInjectTop)
-			if len(findings) > 0 {
-				printed = true
-				fmt.Printf("## Prompt-injected digest  (top %d, prepended to each prompt)\n\n", config.DigestInjectTop)
-				for _, f := range findings {
-					fmt.Printf("  • [%s/%s] %s\n", f.Type, f.Scope, f.Text)
 				}
 				fmt.Println()
 			}
@@ -415,6 +414,9 @@ Flags can be combined. With no flags, shows what would be removed (dry-run).`,
 				if err := report.UninstallHooks(); err != nil {
 					return fmt.Errorf("uninstall hooks: %w", err)
 				}
+				if err := report.RemoveSuggestedHooks(); err != nil {
+					fmt.Fprintf(os.Stderr, "  warning: remove suggested hooks: %v\n", err)
+				}
 				fmt.Println("✓ Hooks removed from settings.json.")
 			}
 			return nil
@@ -468,9 +470,7 @@ func cmdStatus() *cobra.Command {
 			fmt.Printf("Max debate rounds: %d\n", cfg.MaxDebateRounds)
 			fmt.Printf("Digest inject top: %d\n", cfg.DigestInjectTop)
 			fmt.Println()
-			fmt.Println("Hooks:")
-			fmt.Printf("  prompt_inject:   %-6v (UserPromptSubmit — prepends learnings to prompts)\n", cfg.Hooks.PromptInject)
-			fmt.Printf("  pretool_inject:  %-6v (PreToolUse — reminds before Bash/Edit/Write)\n", cfg.Hooks.PretoolInject)
+			fmt.Println("Injection:")
 			fmt.Printf("  memory_inject:   %-6v (writes to project memory + CLAUDE.md)\n", cfg.Hooks.MemoryInject)
 			fmt.Println()
 			fmt.Println("Paths:")
@@ -531,7 +531,7 @@ func cmdInstall() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install",
 		Short: "Register lajan hooks in ~/.claude/settings.json",
-		Long:  "Adds Stop and UserPromptSubmit hooks pointing to ~/.claude-lajan/bin/. Run `make install` to also build and copy the binaries.",
+		Long:  "Adds Stop hook pointing to ~/.claude-lajan/bin/. Run `make install` to also build and copy the binaries.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return install()
 		},
@@ -545,7 +545,7 @@ func install() error {
 	}
 
 	// Check binaries are present (built by Makefile)
-	for _, bin := range []string{"stop-hook", "prompt-hook", "pretool-hook", "lajan"} {
+	for _, bin := range []string{"stop-hook", "lajan"} {
 		p := filepath.Join(binDir, bin)
 		if _, err := os.Stat(p); err != nil {
 			fmt.Printf("  warning: %s not found — run `make install` from the claude-lajan directory first\n", p)
@@ -556,12 +556,134 @@ func install() error {
 		return fmt.Errorf("patch settings: %w", err)
 	}
 
+	if err := installZshCompletion(); err != nil {
+		fmt.Fprintf(os.Stderr, "  warning: zsh completion not installed: %v\n", err)
+	}
+
 	fmt.Println("Hooks registered in ~/.claude/settings.json")
-	fmt.Printf("  Stop hook:    %s/stop-hook        (queues session + runs lajan)\n", binDir)
-	fmt.Printf("  Prompt hook:  %s/prompt-hook      (injects digest at session start)\n", binDir)
-	fmt.Printf("  PreTool hook: %s/pretool-hook     (reminds of improvements before Bash/Edit/Write)\n", binDir)
-	fmt.Println("\nSessions will be reviewed automatically in the background when Claude Code stops.")
+	fmt.Printf("  Stop hook: %s/stop-hook  (queues session + runs lajan in background)\n", binDir)
+	fmt.Println("\nSessions will be reviewed automatically when Claude Code stops.")
 	return nil
+}
+
+// ── uninstall ─────────────────────────────────────────────────────────────────
+
+func cmdUninstall() *cobra.Command {
+	var noConfirm bool
+	cmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove all lajan traces from Claude Code and shell config",
+		Long: `Cleanly removes everything lajan installed on the Claude Code side:
+  • Stop hook from ~/.claude/settings.json
+  • Hookify rule files written by lajan
+  • Managed section from ~/.claude/CLAUDE.md
+  • Rolling digest (~/.claude-lajan/digest.md)
+  • Zsh completion line from ~/.zshrc
+
+Binaries and ~/.claude-lajan/ are removed by 'make uninstall'.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !noConfirm {
+				fmt.Println("This will remove all lajan traces from ~/.claude/ and ~/.zshrc.")
+				fmt.Print("Proceed? [y/N] ")
+				var answer string
+				fmt.Scanln(&answer)
+				if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+					fmt.Println("Aborted.")
+					return nil
+				}
+			}
+
+			if err := report.UninstallHooks(); err != nil {
+				fmt.Fprintf(os.Stderr, "  warning: %v\n", err)
+			} else {
+				fmt.Println("✓ Stop hook removed from ~/.claude/settings.json")
+			}
+
+			if err := report.RemoveSuggestedHooks(); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "  warning: remove suggested hooks: %v\n", err)
+			} else {
+				fmt.Println("✓ Hookify rule files removed")
+			}
+
+			if err := report.ResetGlobal(); err != nil {
+				fmt.Fprintf(os.Stderr, "  warning: reset CLAUDE.md: %v\n", err)
+			} else {
+				fmt.Println("✓ Global CLAUDE.md section removed")
+			}
+
+			if err := report.ResetDigest(); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "  warning: reset digest: %v\n", err)
+			} else {
+				fmt.Println("✓ Digest cleared")
+			}
+
+			if err := uninstallZshCompletion(); err != nil {
+				fmt.Fprintf(os.Stderr, "  warning: zsh completion: %v\n", err)
+			} else {
+				fmt.Println("✓ Zsh completion removed from ~/.zshrc")
+			}
+
+			fmt.Println("\nRun `make uninstall` from the claude-lajan repo to also remove binaries and ~/.claude-lajan/.")
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&noConfirm, "yes", false, "Skip confirmation prompt")
+	return cmd
+}
+
+// installZshCompletion appends a source line to ~/.zshrc if not already present.
+func installZshCompletion() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	zshrc := filepath.Join(home, ".zshrc")
+	line := "source <(lajan completion zsh)  # added by claude-lajan"
+
+	data, _ := os.ReadFile(zshrc)
+	if strings.Contains(string(data), "lajan completion zsh") {
+		return nil // already present
+	}
+
+	f, err := os.OpenFile(zshrc, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "\n%s\n", line)
+	if err == nil {
+		fmt.Println("  Zsh completion added to ~/.zshrc (run `source ~/.zshrc` to activate)")
+	}
+	return err
+}
+
+// uninstallZshCompletion removes the lajan completion line from ~/.zshrc.
+func uninstallZshCompletion() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	zshrc := filepath.Join(home, ".zshrc")
+	data, err := os.ReadFile(zshrc)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	content := string(data)
+	if !strings.Contains(content, "lajan completion zsh") {
+		return nil // nothing to remove
+	}
+	var kept []string
+	for _, line := range strings.Split(content, "\n") {
+		if !strings.Contains(line, "lajan completion zsh") {
+			kept = append(kept, line)
+		}
+	}
+	// Trim trailing blank lines added when we inserted ours, but keep a final newline
+	cleaned := strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
+	return os.WriteFile(zshrc, []byte(cleaned), 0644)
 }
 
 // patchSettings adds the lajan hooks to ~/.claude/settings.json.
@@ -587,12 +709,7 @@ func patchSettings(binDir string) error {
 	}
 
 	stopHookCmd := filepath.Join(binDir, "stop-hook")
-	promptHookCmd := filepath.Join(binDir, "prompt-hook")
-	pretoolHookCmd := filepath.Join(binDir, "pretool-hook")
-
 	hooks["Stop"] = appendHookIfMissing(hooks["Stop"], stopHookCmd)
-	hooks["UserPromptSubmit"] = appendHookIfMissing(hooks["UserPromptSubmit"], promptHookCmd)
-	hooks["PreToolUse"] = appendHookIfMissing(hooks["PreToolUse"], pretoolHookCmd)
 	settings["hooks"] = hooks
 
 	out, err := json.MarshalIndent(settings, "", "  ")
