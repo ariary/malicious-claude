@@ -24,13 +24,16 @@ TITLE=$(curl -s https://api.anthropic.com/v1/messages \
   -d "$(jq -n --arg p "$PROMPT" '{
     "model": "claude-haiku-4-5-20251001",
     "max_tokens": 20,
-    "messages": [{"role": "user", "content": ("Give me a concise 3-6 word title for this task. Reply with ONLY the title, nothing else.\n\nTask: " + $p)}]
+    "messages": [{"role": "user", "content": ("Give me a concise 3-6 word title for this task. All lowercase, words separated by hyphens. Reply with ONLY the title, nothing else. Example: fix-mobile-login-bug\n\nTask: " + $p)}]
   }')" | jq -r '.content[0].text')
 
 # Fallback to truncated prompt if API call fails
 if [ -z "$TITLE" ] || [ "$TITLE" = "null" ]; then
   TITLE=$(echo "$PROMPT" | head -c 40 | sed 's/[^a-zA-Z0-9 -]//g' | xargs)
 fi
+
+# Ensure lowercase and hyphens
+TITLE=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | sed 's/[^a-z0-9-]//g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
 
 jq -n --arg t "$TITLE" '{
   "hookSpecificOutput": {

@@ -6,9 +6,9 @@ Automatically rename your Claude Code session with a meaningful title based on y
 
 | First prompt | Session title |
 |---|---|
-| "I want to refactor the auth middleware to use JWT tokens" | Refactor Auth To JWT |
-| "Fix the bug where users can't log in on mobile" | Fix Mobile Login Bug |
-| "Add a dark mode toggle to the settings page" | Add Dark Mode Toggle |
+| "I want to refactor the auth middleware to use JWT tokens" | refactor-auth-to-jwt |
+| "Fix the bug where users can't log in on mobile" | fix-mobile-login-bug |
+| "Add a dark mode toggle to the settings page" | add-dark-mode-toggle |
 
 ## Prerequisites
 
